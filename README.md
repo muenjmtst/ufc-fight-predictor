@@ -2,65 +2,80 @@
 
 **Machine Learning project for predicting UFC fight outcomes using historical fighter statistics.**
 
-This project explores whether pre-fight fighter attributes, career records, and performance statistics can be used to predict the winner of a UFC fight.
+This project explores whether pre-fight fighter attributes, recorded fight history, and performance statistics can be used to predict the winner of a UFC fight.
 
 The project covers exploratory data analysis, feature engineering, chronological validation, hyperparameter tuning, model comparison, and probability-based classification.
 
-**Project Status:** ML research and model evaluation completed. FastAPI and Docker integration planned.
+**Project Status:** Model training and evaluation completed with corrected date-based splits. FastAPI and Docker integration planned. Verification of historical feature availability remains pending.
 
 ## Final Results
 
 The final selected model is **Logistic Regression with L2 regularization**.
 
-Evaluated on 1,434 chronologically held-out UFC fights:
+Selected configuration:
 
-| Metric                   | Test Score |
-| ------------------------ | ---------: |
-| Accuracy                 | **64.78%** |
-| Balanced Accuracy        | **65.28%** |
-| ROC-AUC                  | **0.7036** |
-| Log Loss                 | **0.6262** |
-| Classification Threshold |   **0.60** |
+- `C=0.01`
+- `solver="lbfgs"`
+- `class_weight=None`
+- `max_iter=1000`
 
-The final model outperformed an always-Red baseline of 56.28% accuracy.
+The model was retrained on **5,726 training fights** and evaluated on **1,443 chronologically held-out UFC fights**.
+
+- Last training date: **2023-05-20**
+- First test date: **2023-06-03**
+
+| Metric | Test Score |
+|---|---:|
+| Accuracy | **64.73%** |
+| Balanced Accuracy | **65.21%** |
+| ROC-AUC | **0.703590** |
+| Log Loss | **0.626085** |
+| Classification Threshold | **0.60** |
+
+The final model outperformed an always-Red baseline of **56.27% accuracy**.
 
 The classification threshold was selected using validation data to improve recall balance between Red and Blue fighters.
 
 ## Dataset
 
-The original dataset contains 7,177 UFC fight records with 118 columns.
+The original dataset contains **7,177 UFC fight records with 118 columns**.
 
-After excluding draws and no-contests, 7,169 fights remained for binary classification.
+After excluding **5 draws and 3 no-contests**, **7,169 fights** remained for binary classification.
 
 **Target variable:**
 
 - `1` — Red fighter wins
 - `0` — Blue fighter wins
 
-The dataset was sorted chronologically to simulate predicting future fights from historical information.
+The dataset was sorted chronologically. Training and evaluation partitions keep complete fight dates together.
 
 ## Feature Engineering
 
-The model uses fighter attributes, historical performance statistics, and engineered differences between Red and Blue fighters.
+The model uses **46 input features**, including fighter attributes, recorded historical statistics, and engineered differences between Red and Blue fighters.
 
 Examples include:
 
 - Fighter age, height, and reach
-- Career wins and losses
+- Recorded wins and losses
 - Current winning and losing streaks
 - Total rounds fought and title fight experience
-- Significant striking and takedown statistics
-- Age, reach, height, and experience differences
-- Career win-rate differences
-- UFC debut indicators
+- Significant striking, takedown, and submission statistics
+- Fighter stances and fight-level attributes
+- Age, reach, height, streak, and experience differences
+- Recorded win-rate differences
+- Zero recorded-experience indicators
 
-Missing values are handled using imputation, numerical features are scaled, and categorical features are one-hot encoded.
+Recorded counts should not be assumed to represent complete professional careers. Zero recorded-experience indicators identify fighters with no recorded wins, losses, or draws in the supplied data; they do not necessarily establish an actual debut.
 
-Preprocessing is included inside scikit-learn Pipelines to reduce data leakage during cross-validation.
+Invalid zero reach values are replaced with missing values before calculating reach differences.
+
+Missing numerical values are handled using mean or median imputation. Numerical features are scaled, and categorical features are imputed and one-hot encoded.
+
+Preprocessing is included inside scikit-learn Pipelines so that imputation, scaling, and encoding are fitted within each training fold.
 
 ## Models Evaluated
 
-The following machine learning algorithms were trained and compared:
+The following models were trained and compared:
 
 - Logistic Regression
 - Support Vector Classifier (SVC)
@@ -70,33 +85,76 @@ The following machine learning algorithms were trained and compared:
 - XGBoost
 - Soft Voting Ensemble
 
-Hyperparameters were optimized using `GridSearchCV` and chronological cross-validation.
+Hyperparameters for individual models were tuned using `GridSearchCV` and chronological cross-validation.
 
-**Log Loss** was the primary model-selection metric, while Accuracy, Balanced Accuracy, ROC-AUC, Precision, Recall, and F1-score were used for additional evaluation.
+**Log Loss** was the primary selection metric for models producing probability predictions. SVC was tuned using **ROC-AUC** from decision scores; probability-based Log Loss was not evaluated for SVC.
+
+Accuracy, Balanced Accuracy, Precision, Recall, and F1-score were used for additional evaluation.
+
+### Validation Results
+
+The following results were obtained after correcting the inner chronological split, using **1,150 validation fights**:
+
+| Model | Accuracy | ROC-AUC | Log Loss ↓ |
+|---|---:|---:|---:|
+| Logistic Regression | 60.96% | 0.6375 | **0.652326** |
+| SVC | 58.87% | 0.6370 | Not evaluated |
+| Regularized Decision Tree | 58.17% | 0.5939 | 0.673318 |
+| Random Forest | 60.61% | 0.6378 | 0.656120 |
+| Extra Trees | 60.52% | 0.6263 | 0.661653 |
+| XGBoost | **62.00%** | 0.6393 | 0.656893 |
+| Soft Voting | 60.52% | **0.6417** | 0.653417 |
+
+Classification metrics in this table use the models' default prediction rules. Logistic Regression threshold tuning was performed separately.
+
+Logistic Regression achieved the lowest validation Log Loss and was selected as the final model.
+
+XGBoost achieved the highest validation Accuracy, while Soft Voting achieved the highest validation ROC-AUC.
+
+The Log Loss difference between Logistic Regression and Soft Voting was small and does not establish statistical significance.
 
 ## Validation Strategy
 
-Unlike random train/test splitting, this project uses chronological evaluation.
+The project uses chronological evaluation with complete fight dates kept together.
 
-- Training and testing data are separated by fight date.
-- A separate chronological validation period is used for model comparison.
-- Cross-validation is performed using date-based splits, ensuring fights from the same date are not divided across training and validation folds.
-- The final test set is held out until model selection and threshold tuning are completed.
+| Partition | Fights | Date Range |
+|---|---:|---|
+| Inner training | 4,576 | 2010-03-21 to 2021-02-13 |
+| Validation | 1,150 | 2021-02-20 to 2023-05-20 |
+| Final test | 1,443 | 2023-06-03 to 2026-03-28 |
+
+- Inner training and validation are used for model comparison and threshold selection.
+- Cross-validation uses **four expanding folds based on unique dates** within the inner training partition.
+- All four CV folds satisfy `max(train date) < min(validation date)`.
+- Preprocessing is fitted inside the model pipelines.
+- After model and threshold selection, the final pipeline is retrained on all **5,726 outer training fights**.
+- The test partition is excluded from model fitting and threshold selection.
+
+Earlier EDA used a row-based split that included nine fights from the current test boundary date. Therefore, the test set was not completely isolated from all project exploration.
 
 ## Classification Threshold
 
 Logistic Regression outputs predicted probabilities for Red and Blue victories.
 
-Two classification thresholds were evaluated:
+Thresholds **0.50, 0.55, 0.60, 0.65, and 0.70** were compared on validation data.
 
-| Metric                 | Threshold 0.50 | Threshold 0.60 |
-| ---------------------- | -------------: | -------------: |
-| Test Accuracy          |         64.23% |     **64.78%** |
-| Test Balanced Accuracy |         61.37% |     **65.28%** |
+Threshold **0.60** achieved the highest validation balanced accuracy among these candidates: **59.32%**.
 
-A threshold of 0.60 was selected on validation data to improve balanced classification performance.
+The standard and validation-selected thresholds were then evaluated on the test set:
 
-The threshold changes the classification decision, not the predicted probabilities.
+| Metric | Threshold 0.50 | Threshold 0.60 |
+|---|---:|---:|
+| Test Accuracy | 64.10% | **64.73%** |
+| Test Balanced Accuracy | 61.29% | **65.21%** |
+
+Threshold 0.60 improved test balanced accuracy by **3.93 percentage points** compared with threshold 0.50.
+
+The threshold changes classification decisions, not predicted probabilities. ROC-AUC and Log Loss therefore remain unchanged.
+
+The selected decision rule is:
+
+- Predict **Red** when `P(Red) >= 0.60`.
+- Predict **Blue** otherwise.
 
 ## Technology Stack
 
@@ -115,19 +173,28 @@ The threshold changes the classification decision, not the predicted probabiliti
 Current and planned project components:
 
 - `data/` — historical UFC data
-- `notebooks/` — EDA, feature engineering, training, and evaluation
-- `models/` — serialized trained model (local; to be committed)
-- `requirements.txt` — project dependencies (to be completed)
-- `src/` — planned reusable feature engineering and prediction code
+- `notebooks/01_eda.ipynb` — exploratory data analysis
+- `notebooks/02_model_training.ipynb` — feature engineering, training, comparison, and evaluation
+- `models/ufc_logistic_regression.joblib` — serialized trained model bundle
+- `requirements.txt` — Python dependencies
 - `README.md` — project documentation
+- `src/` — planned reusable feature engineering and prediction code
 
 ## Current Usage
 
 The ML workflow is currently implemented in Jupyter notebooks.
 
-The selected trained model has been serialized using `joblib`. It includes the preprocessing pipeline, trained Logistic Regression model, classification threshold, and expected feature columns.
+The selected model has been serialized using `joblib`. The bundle includes:
+
+- The fitted preprocessing pipeline and Logistic Regression model
+- The selected classification threshold
+- The expected feature columns
 
 To make predictions for new fights, the same feature engineering operations used during training must first be applied.
+
+Use `predict_proba` and apply the saved threshold to obtain the selected classification decision. The model's default `predict` method does not apply the saved 0.60 threshold.
+
+The bundle expects prepared fighter features. Predicting from two fighter names requires a separate process for retrieving historical statistics.
 
 A standalone prediction API is not yet implemented.
 
@@ -135,16 +202,20 @@ A standalone prediction API is not yet implemented.
 
 - [x] Exploratory Data Analysis
 - [x] Data cleaning and feature engineering
-- [x] Chronological train/validation/test splitting
+- [x] Date-separated train/test split
+- [x] Date-separated inner train/validation split
+- [x] Date-based cross-validation
 - [x] Model training and hyperparameter tuning
 - [x] Model comparison
 - [x] Soft Voting experiment
-- [x] Classification threshold optimization
+- [x] Classification threshold selection
 - [x] Final test evaluation
-- [x] Model serialization
-- [ ] Reusable inference pipeline
+- [x] Model serialization and reload check
+- [ ] Verify dataset provenance and pre-fight availability of historical features
+- [ ] Reusable feature engineering and inference code
+- [ ] Historical fighter lookup for predictions by name
 - [ ] FastAPI prediction endpoint
-- [ ] Automated API tests
+- [ ] Automated inference and API tests
 - [ ] Docker containerization
 - [ ] MLflow integration
 
@@ -152,15 +223,29 @@ A standalone prediction API is not yet implemented.
 
 UFC fight prediction is inherently uncertain. Historical statistics cannot capture every factor influencing a fight, such as injuries, preparation, tactical changes, or unexpected events.
 
-The model was evaluated on historical fights and has not yet been validated as a live prediction service.
+Date overlap between training and evaluation partitions has been corrected. However, chronological splitting and pipeline-based preprocessing do not prove the absence of data leakage.
 
-The current approach may also be influenced by differences in how Red and Blue fighters are assigned to corners.
+The source's historical aggregation logic and feature timestamps still require verification to establish that each input was available before its fight. Some recorded fighter histories also contain inconsistent count transitions that require source investigation.
+
+Earlier EDA included nine fights from the current test boundary date, limiting the independence of the final test evaluation.
+
+The current approach may be influenced by differences in Red and Blue corner assignment. Repeated fighter appearances also mean that individual fight observations are not fully independent.
+
+The model has not yet been validated as a live prediction service.
 
 Prediction probabilities should not be interpreted as guarantees.
 
 ## Future Improvements
 
-Potential improvements include Elo-based fighter ratings, recent fight performance, opponent strength, time since the previous fight, probability calibration, and fighter-order symmetry testing.
+Potential improvements include:
+
+- Elo-based fighter ratings
+- Recent fight performance
+- Opponent strength
+- Time since the previous fight
+- Probability calibration
+- Fighter-order symmetry testing
+- Evaluation on a fresh future holdout
 
 ---
 
