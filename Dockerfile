@@ -3,8 +3,8 @@ WORKDIR /app/
 
 # Сначала ставим зависимости (кэшируется при изменении кода)
 #поэтому нельзя скопировать сначала все три сразу
-COPY requirments.txt .
-RUN pip install --no-cache-dir -r requirments.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app 
 COPY models ./models
