@@ -1,145 +1,112 @@
 # UFC Fight Predictor
 
-**An end-to-end Machine Learning project for predicting UFC fight outcomes using historical fighter statistics.**
+**An end-to-end machine learning project for predicting UFC fight outcomes using historical fighter statistics.**
 
-Python · Scikit-learn · FastAPI · Docker · Machine Learning
+**Tech stack:** Python · scikit-learn · pandas · FastAPI · Pydantic · Streamlit · Docker · MLflow
 
-**Project Status:** ML training and evaluation completed. FastAPI inference API implemented, containerized with Docker, and manually tested.
+**Status:** Model training and evaluation completed. FastAPI inference, Streamlit UI, Docker deployment, and MLflow experiment tracking/model registration have been implemented and manually tested.
+
+> **Educational project.** Predictions are estimates, not guarantees. The availability of every historical input feature *before* its corresponding fight has not yet been fully verified.
 
 ## Overview
 
-UFC Fight Predictor is a machine learning project that estimates the outcome of a UFC fight based on fighter characteristics, recorded fight history, and performance statistics.
+UFC Fight Predictor estimates whether the Red or Blue corner will win a UFC fight using fighter attributes, recorded fight history, performance statistics, and engineered differences between opponents.
 
-The project covers the complete machine learning workflow:
+The project covers exploratory data analysis (EDA), feature engineering, chronological validation, model comparison, hyperparameter tuning, probability-based classification, API development, a user interface, containerization, and model lifecycle tracking.
 
-- Exploratory Data Analysis (EDA)
-- Data cleaning and feature engineering
-- Chronological train/validation/test splitting
-- Hyperparameter tuning and model comparison
-- Probability-based classification
-- Model serialization and inference
-- REST API development using FastAPI
-- Containerization using Docker
+The deployed Logistic Regression pipeline expects **46 prepared input features** and returns probabilities for both corners, plus a classification decision based on a saved **0.60 threshold**.
 
-The deployed model accepts 46 prepared fight features and returns predicted probabilities for Red and Blue corner victories.
+## System Architecture
 
-**Important:** The project is intended for educational and portfolio purposes. Verification that every historical input feature was available before its corresponding fight remains incomplete.
+```text
+User
+  │ enters fighter information
+  ▼
+Streamlit UI (localhost:8501)
+  │ calculates fight-level features
+  │ POST /predict (JSON)
+  ▼
+FastAPI (localhost:8000)
+  │ Pydantic validation → pandas DataFrame
+  ▼
+Saved scikit-learn Pipeline (.joblib)
+  │ imputation → scaling / one-hot encoding → Logistic Regression
+  ▼
+FastAPI JSON response → Streamlit prediction & probabilities
+```
 
----
+- **Streamlit (frontend):** Collects information about Red and Blue corner fighters, calculates derived features, sends a JSON request, and displays the prediction.
+- **FastAPI (backend):** Validates the request with Pydantic, selects the expected columns, invokes the saved pipeline, and returns the predicted winner and probabilities.
+- **ML pipeline:** The deployed preprocessing and Logistic Regression estimator are loaded from a serialized model bundle. EDA, model comparison, and hyperparameter tuning happened earlier during development; they do **not** run on every prediction.
+- **Docker:** Packages the **FastAPI backend** and its dependencies in an isolated Linux-based container. Streamlit is launched separately in the current setup.
+- **MLflow:** Tracks experiment runs, parameters, metrics, and model artifacts, and records registered model versions. The live API currently loads a local `.joblib` file rather than serving directly from MLflow Registry.
 
 ## Model Performance
 
-The final deployed model is **Logistic Regression with L2 regularization**, trained using a scikit-learn Pipeline.
+The retained model is **Logistic Regression with L2 regularization**, implemented as a scikit-learn Pipeline.
 
-### Final Test Results
+It was fitted on **5,726 fights** and evaluated on **1,443 chronologically held-out fights**.
 
-The model was trained on **5,726 fights** and evaluated on **1,443 chronologically held-out fights**.
-
-| Metric | Test Score |
+| Metric | Final test result |
 |---|---:|
 | Accuracy | **64.73%** |
-| Balanced Accuracy | **65.21%** |
+| Balanced accuracy | **65.21%** |
 | ROC-AUC | **0.703590** |
-| Log Loss | **0.626085** |
-| Classification Threshold | **0.60** |
+| Log loss | **0.626085** |
+| Selected classification threshold | **0.60** |
 
-The model outperformed the always-Red baseline of **56.27% accuracy**.
+The model exceeded an always-Red prediction baseline of **56.27% accuracy**.
 
-### Selected Hyperparameters
+### Selected hyperparameters
 
 | Parameter | Value |
 |---|---|
-| Model | Logistic Regression |
+| Estimator | Logistic Regression |
 | Regularization | L2 |
-| C | 0.01 |
-| Solver | lbfgs |
-| Class Weight | None |
-| Max Iterations | 1000 |
+| `C` | `0.01` |
+| Solver | `lbfgs` |
+| Class weight | `None` |
+| Maximum iterations | `1000` |
 
-The classification threshold was selected using validation data rather than the final test set.
-
----
+The decision threshold was selected using validation data, not by optimizing on the final test set.
 
 ## Dataset
 
-The original dataset contains **7,177 UFC fight records with 118 columns**.
+The original dataset includes **7,177 UFC fight records** and **118 columns**. After removing **5 draws and 3 no-contests**, **7,169 fights** remained for binary classification.
 
-After excluding 5 draws and 3 no-contests, **7,169 fights** remained for binary classification.
+**Target encoding:** `1` = Red corner wins; `0` = Blue corner wins.
 
-### Target Variable
+### Chronological partitions
 
-| Class | Meaning |
-|---|---|
-| `1` | Red fighter wins |
-| `0` | Blue fighter wins |
-
-The data was sorted chronologically to evaluate the model on later fights rather than using a random train/test split.
-
-### Dataset Split
-
-| Partition | Number of Fights | Date Range |
+| Partition | Fights | Dates |
 |---|---:|---|
-| Inner Training | 4,576 | 2010-03-21 to 2021-02-13 |
+| Inner training | 4,576 | 2010-03-21 to 2021-02-13 |
 | Validation | 1,150 | 2021-02-20 to 2023-05-20 |
-| Final Test | 1,443 | 2023-06-03 to 2026-03-28 |
+| Final test | 1,443 | 2023-06-03 to 2026-03-28 |
 
-The final model was retrained on all **5,726 outer training fights** after validation and threshold selection.
+The inner training and validation partitions together make up the **5,726-fight outer training set**. The final model was refitted on that outer training set after selecting the configuration and threshold.
 
----
+## Feature Engineering & Preprocessing
 
-## Feature Engineering
+The deployed model uses **46 features** from several groups:
 
-The deployed model uses **46 input features**, including fighter attributes, historical performance statistics, and engineered differences between opponents.
+| Group | Examples |
+|---|---|
+| Fighter attributes | Age, height, reach, stance, weight class |
+| Recorded fight history | Wins, losses, current streaks, rounds fought, title bouts |
+| Performance statistics | Significant strike accuracy, takedowns, submission attempts, KO/TKO and submission wins |
+| Engineered differences | Age, reach, height, streak, experience, and win-rate differences |
+| Special indicators | Zero recorded-experience indicators, title bout, scheduled rounds |
 
-### Main Feature Groups
+Differences are computed consistently in the **Red − Blue** direction. When calculating recorded experience and win rate in Streamlit, wins, losses **and draws** are included. A win rate with zero recorded fights is undefined, so its difference is passed as a missing value rather than an artificial zero.
 
-**Fighter Attributes**
-- Age, height and reach
-- Fighter stance
-- Weight class
+The saved Pipeline handles missing numerical values with mean/median imputation, scales numerical features using `StandardScaler`, and processes categorical values using most-frequent imputation and `OneHotEncoder`. Preprocessing is fitted inside training folds rather than on validation data.
 
-**Fight History**
-- Recorded wins and losses
-- Current winning and losing streaks
-- Total rounds fought
-- Title fight experience
+Recorded wins and losses should not automatically be interpreted as full professional career histories; a zero recorded-experience indicator does not necessarily mean a real UFC debut. Invalid zero reach values were treated as missing during feature preparation.
 
-**Performance Statistics**
-- Significant strike accuracy
-- Takedown statistics
-- Submission attempts
-- Recorded KO/TKO and submission wins
+## Model Experiments & Validation
 
-**Engineered Features**
-- Age difference
-- Reach and height differences
-- Winning and losing streak differences
-- Experience difference
-- Recorded win-rate difference
-- Zero recorded-experience indicators
-
-Differences between fighters are calculated consistently in the **Red − Blue** direction.
-
-### Data Preprocessing
-
-The preprocessing pipeline includes:
-
-1. Missing value imputation using mean, median, or most-frequent strategies.
-2. StandardScaler for numerical features.
-3. OneHotEncoder for categorical features.
-4. Logistic Regression for binary classification.
-
-All preprocessing steps are included inside the scikit-learn Pipeline.
-
-This prevents preprocessing statistics from being fitted on validation data during cross-validation, although it does not establish that the underlying dataset is free from historical data leakage.
-
-**Data note:** Recorded fight histories may not represent complete professional careers. Zero recorded-experience indicators do not necessarily mean that a fighter is making their professional or UFC debut. Invalid zero reach values were treated as missing during feature preparation.
-
----
-
-## Model Experiments
-
-Several machine learning algorithms were explored:
+The following algorithms were explored during development:
 
 - Logistic Regression
 - Support Vector Classifier (SVC)
@@ -149,160 +116,138 @@ Several machine learning algorithms were explored:
 - XGBoost
 - Soft Voting Ensemble
 
-Hyperparameter searches were conducted using GridSearchCV and chronological cross-validation.
+Historical experiments used hyperparameter searches and chronological cross-validation. **Log loss** was a primary metric for probability-producing models, with accuracy, balanced accuracy, ROC-AUC, precision, recall, and F1 used for additional evaluation.
 
-**Log Loss** was the primary selection metric for models producing probability predictions. Accuracy, Balanced Accuracy, ROC-AUC, Precision, Recall, and F1-score were also considered.
+After correcting the chronological split, the retained Logistic Regression configuration was re-evaluated on **1,150 validation fights**:
 
-### Corrected Validation
-
-Following correction of the chronological validation split, the retained Logistic Regression configuration was re-evaluated on 1,150 validation fights.
-
-| Metric | Validation Score |
+| Validation metric | Result |
 |---|---:|
 | Accuracy at threshold 0.50 | 60.96% |
 | ROC-AUC | 0.637528 |
-| Log Loss | 0.652326 |
+| Log loss | 0.652326 |
 
-The other models were not all retrained and compared again on the corrected split. Therefore, the earlier experiments do not establish a definitive ranking of all candidate algorithms under the final validation protocol.
+The other models were **not all re-evaluated on the corrected split**. Their earlier scores cannot establish a definitive final ranking under the revised validation protocol.
 
-The retained Logistic Regression configuration was used for the final deployment.
+### Validation protocol
 
----
+- Complete fight dates were kept together in each partition.
+- The inner training data used **four expanding, date-based cross-validation folds**.
+- Every fold satisfied `max(training_date) < min(validation_date)`.
+- Validation was used for the retained model's evaluation and classification-threshold selection.
+- The final outer training set was used to fit the saved pipeline; the later test period was used for final evaluation.
 
-## Validation Strategy
+**Caveat:** Earlier EDA included nine fights from the current test boundary date. The final test evaluation was therefore not entirely isolated from *all* earlier project exploration.
 
-Chronological evaluation was used to better approximate predictions on future fights.
+### Classification threshold
 
-The validation process included:
+Validation thresholds **0.50, 0.55, 0.60, 0.65, and 0.70** were compared. Threshold **0.60** gave the highest validation balanced accuracy among these candidates (**59.32%**).
 
-- Date-separated training and evaluation partitions.
-- Complete fight dates kept together.
-- Four expanding chronological cross-validation folds within the inner training partition.
-- Model evaluation and threshold selection using validation data.
-- Final retraining on the full outer training set.
-- Final test evaluation after model and threshold selection.
-
-Every cross-validation fold maintained the relationship:
-
-`max(training_date) < min(validation_date)`
-
-**Limitation:** Earlier exploratory analysis included nine fights from the current test boundary date. The final test evaluation was not completely isolated from all earlier project exploration.
-
-### Classification Threshold
-
-The model produces probabilities for Red and Blue victories.
-
-The following classification thresholds were evaluated on validation data:
-
-`0.50`, `0.55`, `0.60`, `0.65`, `0.70`
-
-The selected threshold of **0.60** achieved the highest validation balanced accuracy among these candidates: **59.32%**.
-
-| Test Metric | Threshold 0.50 | Threshold 0.60 |
+| Final test metric | Threshold 0.50 | Threshold 0.60 |
 |---|---:|---:|
 | Accuracy | 64.10% | **64.73%** |
-| Balanced Accuracy | 61.29% | **65.21%** |
+| Balanced accuracy | 61.29% | **65.21%** |
 
-The selected decision rule is:
-
-- Predict **Red** when `P(Red) >= 0.60`.
-- Predict **Blue** otherwise.
-
-The threshold changes the classification decision but does not change the predicted probabilities.
-
----
+**Decision rule:** predict **Red** if `P(Red) >= 0.60`; otherwise predict **Blue**. This is not the same as always choosing the corner with the higher probability. Changing the threshold changes predicted *classes*, not the underlying probabilities, ROC-AUC, or log loss.
 
 ## Technology Stack
 
-| Category | Technologies |
+| Purpose | Technologies |
 |---|---|
-| Language | Python |
-| Data Processing | pandas, NumPy |
-| Machine Learning | scikit-learn |
-| Historical Experiments | XGBoost |
-| Visualization | Matplotlib, Seaborn |
-| Development | Jupyter Notebook |
-| Model Serialization | joblib |
-| API Framework | FastAPI, Pydantic |
-| ASGI Server | Uvicorn |
+| Language and data | Python, pandas, NumPy |
+| ML and evaluation | scikit-learn; XGBoost in earlier experiments |
+| Notebooks and visualizations | Jupyter, Matplotlib, Seaborn |
+| Serialization | joblib |
+| REST API | FastAPI, Pydantic, Uvicorn |
+| Interactive frontend | Streamlit, requests |
 | Containerization | Docker |
+| Experiment tracking and model registry | MLflow, skops |
 
----
-
-## Project Structure
+## Repository Structure
 
 ```text
 ml-ufc/
 ├── app/
-│   └── main.py
-├── data/
+│   └── main.py                   # FastAPI application
+├── data/                         # Dataset / saved evaluation data
 ├── models/
 │   └── ufc_logistic_regression.joblib
 ├── notebooks/
 │   ├── 01_eda.ipynb
 │   └── 02_model_training.ipynb
+├── streamlit_app.py              # UI and feature construction
+├── train.py                      # MLflow logging / registration
+├── requirements.txt
+├── requirements-dev.txt          # Development environment snapshot
+├── Dockerfile
 ├── .dockerignore
 ├── .gitignore
-├── Dockerfile
-├── requirements.txt
 └── README.md
 ```
 
-**Main Components**
-
-- `app/main.py` — FastAPI application and prediction endpoints.
-- `data/` — historical UFC dataset.
-- `models/` — saved machine learning pipeline and model metadata.
-- `notebooks/` — exploratory analysis, training and evaluation.
-- `Dockerfile` — instructions for building the Docker image.
-- `.dockerignore` — files excluded from the Docker build context.
-- `requirements.txt` — Python dependencies required to run the application.
-
----
+MLflow's local `mlflow.db` and `mlruns/` are generated runtime data and are not intended to be committed. Ensure the saved model file and any evaluation data needed by `train.py` are available in the cloned project.
 
 ## Getting Started
 
-### Prerequisites
+### Option A — Run FastAPI with Docker (recommended for prediction)
 
-- Git
-- Docker Desktop or Docker Engine
+**Prerequisites:** Git, Docker Desktop or Docker Engine, and a local Python environment with Streamlit dependencies if you want the graphical interface.
 
-The Docker image includes the Python runtime and required application dependencies.
-
-### 1. Clone the Repository
+Clone the project:
 
 ```bash
 git clone https://github.com/muenjmtst/ufc-fight-predictor.git
 cd ufc-fight-predictor
 ```
 
-### 2. Build the Docker Image
+Build and run the backend:
 
 ```bash
 docker build -t ufc-predictor:local .
-```
-
-This builds the application image containing FastAPI, its dependencies and the serialized machine learning model.
-
-### 3. Run the Container
-
-```bash
 docker run --rm --name ufc-api -p 8000:8000 ufc-predictor:local
 ```
 
-The API will be accessible at:
+FastAPI: `http://localhost:8000`
+Interactive API docs: `http://localhost:8000/docs`
 
-**http://localhost:8000**
+To start the **Streamlit UI separately**, open another terminal with the project's Python environment activated and run:
 
-### 4. Open API Documentation
+```bash
+streamlit run streamlit_app.py
+```
 
-FastAPI provides interactive Swagger documentation at:
+Streamlit UI: `http://localhost:8501`
 
-**http://localhost:8000/docs**
+The Streamlit process sends HTTP requests to FastAPI on port `8000`. It does not run inside the current API container.
 
-You can inspect available endpoints, enter JSON requests and test predictions directly in the browser.
+### Option B — Run FastAPI and Streamlit locally (for development)
 
-### 5. Check API Health
+Use a Python environment with the dependencies in `requirements.txt`. **Python 3.13 is recommended** to match the Docker runtime and the saved model's scikit-learn environment (`scikit-learn==1.9.0`). If another Python/scikit-learn version is used, serialized-model compatibility warnings or errors may occur.
+
+For an existing environment, activate it. For a new one with Python 3.13 installed:
+
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate      # macOS / Linux
+python -m pip install -r requirements.txt
+```
+
+Then start the services in **separate terminals**, from the repository root:
+
+**Terminal 1 — FastAPI**
+
+```bash
+uvicorn app.main:app --reload
+```
+
+**Terminal 2 — Streamlit**
+
+```bash
+streamlit run streamlit_app.py
+```
+
+Do **not** run Docker's API container and local Uvicorn at the same time on the same host port `8000`.
+
+### Quick API health check
 
 ```bash
 curl http://localhost:8000/health
@@ -311,32 +256,22 @@ curl http://localhost:8000/health
 Expected response:
 
 ```json
-{
-  "status": "ok"
-}
+{"status": "ok"}
 ```
 
-Press `Ctrl+C` in the terminal running Docker to stop the container.
-
----
+Press `Ctrl+C` in the respective terminal to stop a service. `docker run --rm` removes the container after it stops, not the built image.
 
 ## API Endpoints
 
-The application exposes the following REST API endpoints:
-
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/` | Returns general application information |
-| GET | `/health` | Checks whether the API responds |
-| GET | `/model_info` | Returns model metadata |
-| POST | `/compare` | Compares basic fighter attributes |
-| POST | `/predict` | Predicts a UFC fight outcome |
+| `GET` | `/` | General application information |
+| `GET` | `/health` | Backend status check |
+| `GET` | `/model_info` | Model type, threshold, feature count, and load status |
+| `POST` | `/compare` | Simple comparison of two fighter objects (names and age difference; **no ML**) |
+| `POST` | `/predict` | Predicted corner and probabilities from 46 prepared input features |
 
-### GET /model_info
-
-Returns information about the loaded ML model.
-
-Example response:
+Example `GET /model_info` response:
 
 ```json
 {
@@ -347,30 +282,13 @@ Example response:
 }
 ```
 
-### POST /predict
-
-Accepts a JSON object containing 46 prepared model features.
-
-The request is validated using Pydantic, converted to a pandas DataFrame, and passed to the saved scikit-learn Pipeline.
-
-The response contains:
-
-- Predicted winning corner
-- Probability of a Red victory
-- Probability of a Blue victory
-- Classification threshold
-
-**Note:** The API expects prepared fight statistics, not fighter names. Historical lookup and automatic feature generation are not yet implemented.
-
----
+`POST /predict` accepts a **flat JSON object** with prepared features, not merely two fighter names. Streamlit assists with entering inputs and calculating several derived features, but it does **not** automatically retrieve verified historical records. The FastAPI service itself expects the prepared values.
 
 ## Example Prediction
 
-Below is an example of a request tested against the deployed UFC prediction API.
+The following input was manually checked through FastAPI and Docker, and its predicted probabilities matched notebook inference to floating-point precision.
 
-### Request
-
-**POST /predict**
+### Request — `POST /predict`
 
 ```json
 {
@@ -434,112 +352,96 @@ Below is an example of a request tested against the deployed UFC prediction API.
 }
 ```
 
-**Prediction:** Blue Corner wins.
+The model estimates **45.69%** for Red and **54.31%** for Blue. The selected label is **Blue**, because `P(Red) < 0.60`.
 
-The model estimates:
+**Input conventions:** age in years; height and reach in centimeters; percentage-based features as fractions (for example, `0.39` rather than `39`). Keys such as `R_win_by_KO/TKO` include a literal slash. A missing `win_rate_diff` may be passed as JSON `null` when a fighter has no recorded fights; the preprocessing pipeline imputes that missing value.
 
-- Red win probability: **45.69%**
-- Blue win probability: **54.31%**
+## MLflow — Experiment Tracking and Model Registry
 
-This prediction was manually checked through FastAPI inside a Docker container. The probabilities matched the original Jupyter Notebook inference to floating-point precision.
+MLflow is used to log the retained model's parameters, evaluation metrics, and artifacts and to register model versions. It is **not necessary for routine predictions** from the local FastAPI model file.
 
-### Input Format
+From the project root, in a Python environment containing MLflow:
 
-- Age inputs are measured in years.
-- Height and reach are measured in centimeters.
-- Percentage statistics are represented as fractions, such as `0.39` instead of `39`.
-- Engineered differences must follow the same feature definitions used during model training.
-- JSON field names must match the expected Pydantic schema.
+**1. Record an evaluation run and register the model** (only when you intend to create a new run/version):
 
----
+```bash
+python train.py
+```
 
-## API and Docker Verification
+The current `train.py` evaluates an **already trained model** from `models/ufc_logistic_regression.joblib`; it does not refit the Logistic Regression estimator. It logs the saved classification threshold, test metrics, model artifacts, and a registered model version.
 
-The application was manually tested locally and inside Docker.
+**2. Open the MLflow UI:**
 
-The following endpoints successfully returned HTTP 200:
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
 
-- `GET /`
-- `GET /health`
-- `GET /model_info`
-- `POST /compare`
-- `POST /predict`
+Visit `http://localhost:5000`, select **Model training**, and open experiment **`ufc-fight-prediction`**. Within a run, inspect **Parameters**, **Metrics**, and **Artifacts**. In **Registered Models**, find **`ufc-fight-prediction`** and its versions.
 
-For the tested fight, predictions from the Docker container matched the probabilities produced in the training notebook.
+The local audit confirmed a registered **version 2**, but **Registry version numbers are local to the tracking database**: cloning this Git repository does not recreate version 2 automatically. Running `train.py` against a new tracking database will normally create a new experiment/run and start the registered model's versions from 1.
 
-These checks demonstrate that the inference service works for the tested inputs. They do not replace automated integration tests or establish predictive performance on new future fights.
+**Important serving detail:** The registered scikit-learn estimator's standard `predict()` does not automatically apply the application's custom threshold `0.60`. For reproducible inference, the complete original `.joblib` bundle also retains the threshold and feature-column list; the API uses these values when serving predictions.
 
----
+`mlflow.db` and `mlruns/` are local outputs and should remain excluded from Git.
+
+## Verification
+
+Manually verified scenarios include:
+
+- Successful local and Docker API responses for `/`, `/health`, `/model_info`, and `/predict`.
+- FastAPI probabilities matching notebook inference for the provided 46-feature sample.
+- Streamlit submitting input to FastAPI and displaying both probabilities and the predicted winner.
+- A fighter with **zero recorded fights**, for whom an undefined `win_rate_diff` is represented as a missing value and processed by the pipeline.
+- Streamlit displaying a backend-offline error message when FastAPI is stopped.
+- MLflow recording experiment runs and registering a model version.
+
+These are manual and audit checks, **not a complete automated regression-test suite**. A clean installation from GitHub should still be validated before submission or use on another machine.
 
 ## Roadmap
 
 ### Completed
 
-- [x] Exploratory Data Analysis
-- [x] Data cleaning and feature engineering
-- [x] Chronological train/validation/test splitting
-- [x] Date-based cross-validation
-- [x] Model training and hyperparameter tuning
-- [x] Historical model comparison
-- [x] Classification threshold selection
-- [x] Final test evaluation
+- [x] Exploratory data analysis, cleaning, and feature engineering
+- [x] Chronological splits and cross-validation
+- [x] Model experiments, retained configuration, and hyperparameter tuning
+- [x] Classification threshold selection and final evaluation
 - [x] Model serialization with joblib
-- [x] FastAPI REST API
-- [x] Pydantic input schemas
-- [x] ML inference endpoint
-- [x] Manual API testing
-- [x] Docker containerization
-- [x] Prediction verification inside Docker
+- [x] FastAPI endpoints and Pydantic input schema
+- [x] Docker API containerization and manual inference checks
+- [x] Streamlit frontend and HTTP integration
+- [x] MLflow experiment tracking and model registration
+- [x] Missing-value handling for an undefined win-rate difference
 
-### Planned
+### Planned / Not yet fully verified
 
-- [ ] Verify dataset provenance and historical feature availability
-- [ ] Reusable automated feature engineering for inference
-- [ ] Fighter lookup and prediction by name
-- [ ] Automated API and inference tests
-- [ ] Probability calibration
-- [ ] MLflow experiment tracking
-- [ ] Additional evaluation on future fights
-
----
+- [ ] Verify dataset provenance and pre-fight historical feature availability
+- [ ] Extract shared, reusable feature engineering for training and inference
+- [ ] Retrieve historical fighter statistics by name
+- [ ] Automated API, frontend, and inference tests
+- [ ] More comprehensive domain validation for all input features
+- [ ] Probability calibration and evaluation on fresh future fights
+- [ ] Fully portable MLflow-based model serving with the custom threshold contract
 
 ## Limitations
 
-UFC fight prediction is inherently uncertain. Historical statistics cannot capture every factor that influences a fight, including injuries, preparation, tactical changes and unexpected events.
-
-Important limitations include:
-
-1. **Historical feature availability:** The source dataset's aggregation logic and timestamps have not been fully verified to establish that every feature was available before the corresponding fight.
-
-2. **Earlier exploratory analysis:** Nine fights from the final test boundary date appeared in an earlier EDA split, limiting the independence of the final evaluation from all project exploration.
-
-3. **Historical fighter statistics:** Recorded wins, losses and other aggregated statistics may be incomplete or inconsistent.
-
-4. **Corner assignment bias:** Predictions may be influenced by systematic differences between Red and Blue corner assignments.
-
-5. **Repeated fighters:** Individual fight observations are not fully independent because fighters appear across multiple fights.
-
-6. **Inference requirements:** The API requires 46 prepared features. It does not currently retrieve fighter statistics or construct the features automatically from fighter names.
-
-7. **Future performance:** The deployed API has been manually tested, but predictive performance and probability calibration have not been validated on fresh future fights.
-
-Predicted probabilities are statistical model outputs and should not be interpreted as guarantees of fight outcomes.
-
----
+1. **Potential historical leakage:** The input source's aggregation logic and feature timestamps have not been fully audited to confirm that each value existed before the corresponding fight. Chronological splitting and pipeline-based preprocessing alone do not prove leakage-free evaluation.
+2. **Early EDA overlap:** Nine fights from the current test boundary date appeared in earlier exploratory work, reducing the independence of the final evaluation from the entire analysis process.
+3. **Recorded histories:** Some win/loss histories are incomplete or inconsistent; zero recorded experience does not necessarily imply a real debut.
+4. **Corner assignment bias:** Results may reflect systematic differences in how Red and Blue corners are assigned.
+5. **Repeated observations:** Fighters appear in multiple fights, so fight records are not fully independent.
+6. **Manual inputs:** The user must provide fighter statistics; automatic historical lookup and fully validated feature generation are not yet implemented. Incorrect or mutually inconsistent inputs can make predictions less reliable.
+7. **Limited operational tests:** The API and Streamlit have been manually tested, but the project does not yet have a comprehensive automated test suite or live-future evaluation.
+8. **Uncertain outcomes:** Injuries, preparation, tactics, and other factors are not fully represented. Probabilities are model estimates, **not guarantees**.
 
 ## Future Improvements
 
-Potential extensions include:
-
-- Elo-based fighter ratings
-- Recent fight performance and form
-- Opponent strength
-- Time since the previous fight
+- Elo-based fighter ratings and opponent-strength features
+- Recent-form and time-since-last-fight features
+- Shared feature generation and automatic fighter lookup
 - Fighter-order symmetry testing
-- Probability calibration
-- Automatic feature generation
-- Evaluation on a fresh future holdout
+- Probability calibration and fresh future holdout evaluation
+- Automated tests and continuous integration
 
 ---
 
-**Purpose:** Educational machine learning and MLOps portfolio project.
+**Purpose:** An educational machine learning and MLOps portfolio project.

@@ -9,8 +9,17 @@ st.title("UFC fight predictor")
 with st.sidebar: #все рисуется в левой выдвижной панели
     st.header('Backend Status')
     try:
-        health = requests.get(f"{API_URL}/health", timeout=2).json()
-        info = requests.get(f"{API_URL}/model_info", timeout=2).json()
+        #добавляю проверку health так как может выйти ошибка
+        health_response = requests.get(f"{API_URL}/health", timeout=2)
+        health_response.raise_for_status()
+        health = health_response.json()
+
+        #такая же тема с info
+        info_response = requests.get(f"{API_URL}/model_info", timeout=2)
+        info_response.raise_for_status()
+        info = info_response.json()
+
+
         st.success(f"API: {health['status'].upper()}")
         st.write(f"Model name: {info['model_type']}")
         st.write(f"Model threshold: {info['threshold']}")
@@ -44,6 +53,7 @@ with col_red:
     r_stance = st.selectbox("Stance (Red)", ["Orthodox", "Southpaw", "Switch", "Open Stance"])
     r_wins = st.number_input("Wins (Red)", min_value=0, max_value=60, value=15)
     r_losses = st.number_input("Losses (Red)", min_value=0, max_value=40, value=4)
+    r_draws = st.number_input("Draws (Red)", min_value=0, max_value=10, value=0)
     r_win_streak = st.number_input("Current Win Streak (Red)", min_value=0, max_value=20, value=2)
     r_lose_streak = st.number_input("Current Lose Streak (Red)", min_value=0, max_value=15, value=0)
     r_rounds = st.number_input("Total Rounds Fought (Red)", min_value=0, max_value=150, value=25)
@@ -63,6 +73,7 @@ with col_blue:
     b_stance = st.selectbox("Stance (Blue)", ["Orthodox", "Southpaw", "Switch", "Open Stance"])
     b_wins = st.number_input("Wins (Blue)", min_value=0, max_value=60, value=12)
     b_losses = st.number_input("Losses (Blue)", min_value=0, max_value=40, value=5)
+    b_draws = st.number_input("Draws (Blue)", min_value=0, max_value=10, value=0)
     b_win_streak = st.number_input("Current Win Streak (Blue)", min_value=0, max_value=20, value=1)
     b_lose_streak = st.number_input("Current Lose Streak (Blue)", min_value=0, max_value=15, value=0)
     b_rounds = st.number_input("Total Rounds Fought (Blue)", min_value=0, max_value=150, value=20)
@@ -80,10 +91,16 @@ st.divider()
 #type=primary, чтобы визуально отделить от secondary buttons
 #user_container_width=True, растягивает на 100 процентов ширины родительского элемента
 if st.button("Predict Winner", type="primary", use_container_width=True): 
-    r_exp = r_wins + r_losses
-    b_exp = b_wins + b_losses
-    r_wr = r_wins / r_exp if r_exp > 0 else 0.0
-    b_wr = b_wins / b_exp if b_exp > 0 else 0.0
+    r_exp = r_wins + r_losses + r_draws
+    b_exp = b_wins + b_losses + b_draws
+
+    r_wr = r_wins / r_exp if r_exp > 0 else None
+    b_wr = b_wins / b_exp if b_exp > 0 else None
+
+    if (r_wr is None) or (b_wr is None):
+        win_rate_diff = None
+    else:
+        win_rate_diff = r_wr - b_wr
 
     payload = {
         "age_diff": r_age - b_age,
@@ -94,7 +111,7 @@ if st.button("Predict Winner", type="primary", use_container_width=True):
         "wins_diff": r_wins - b_wins,
         "losses_diff": r_losses - b_losses,
         "experience_diff": r_exp - b_exp,
-        "win_rate_diff": r_wr - b_wr,
+        "win_rate_diff": win_rate_diff,
         "R_is_debutant": int(r_exp == 0),
         "B_is_debutant": int(b_exp == 0),
         "R_age": r_age,
@@ -139,9 +156,40 @@ if st.button("Predict Winner", type="primary", use_container_width=True):
         response.raise_for_status() # выводит http запрос с сервера, все ли норм или нет
         result = response.json()
 
+        #добавляю новую защиту
+        if not isinstance(result, dict):
+            raise ValueError("API response must be a dictionary")
+
+        #проверяю наличие нужных полей для предсказания, если их нет то все сломается
+        required_fields = [
+            "predicted_winner",
+            "red_win_probability",
+            "blue_win_probability",
+            "threshold"
+        ]
+
+        for field in required_fields:
+            if field not in result:
+                raise ValueError(f"Missing field: {field}")
+
+
+
         winner = result["predicted_winner"]
         red_prob = result["red_win_probability"]
         blue_prob = result["blue_win_probability"]
+        threshold = result["threshold"]
+
+        if winner not in ("Red", "Blue"):
+            raise ValueError("Invalid predicted winner")
+
+        #проверка то что вероятность в промежутке от 0 до 1
+        for value in (red_prob, blue_prob, threshold):
+            if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not 0 <= value <= 1):
+                raise ValueError("Invalid probability or threshold")
+
 
         #success - рисует зеленую плашку
         #info - рисует синию плашку
@@ -153,10 +201,13 @@ if st.button("Predict Winner", type="primary", use_container_width=True):
         m1, m2, m3 = st.columns(3)
         m1.metric("🔴 Red Win Probability", f"{red_prob:.1%}")
         m2.metric("🔵 Blue Win Probability", f"{blue_prob:.1%}")
-        m3.metric("Decision Threshold", f"{result['threshold']:.2f}")
+        m3.metric("Decision Threshold", f"{threshold:.2f}")
 
         st.progress(red_prob)# рисует линию прогресса 
     except requests.exceptions.RequestException as e:
         st.error(f"Request failed: {e}")
+
+    except (ValueError, TypeError) as e:
+        st.error(f"Invalid API response: {e}")
 
 

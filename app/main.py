@@ -31,7 +31,7 @@ class Fighterv1(BaseModel):
     wins_diff: int
     losses_diff: int
     experience_diff: int
-    win_rate_diff: float
+    win_rate_diff: float | None
     R_is_debutant: int
     B_is_debutant: int
     R_age: int
@@ -113,6 +113,11 @@ def get_model_info():
 def predict_for_fighter(fighter_a: Fighterv1):
     translate = fighter_a.model_dump(by_alias=True)#чтобы обратно перевести в правильный формат
     dataframe = pd.DataFrame([translate])[feature_columns]#фильтрация по фичам, чтобы лишние не попали
+
+
+    dataframe["win_rate_diff"] = pd.to_numeric(dataframe["win_rate_diff"], errors="coerce")
+
+
     model = model_bundle['model']
     threshold = model_bundle['threshold']
 
